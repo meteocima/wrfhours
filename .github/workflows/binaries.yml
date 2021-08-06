@@ -24,7 +24,7 @@ jobs:
 
     - name: Build binaries
       run: |
-        go build -o wrfoutput ./cli -ldflags="-X 'main.Version="$GIT_TAG_NAME"'" 
+        go build ./cli -o wrfoutput -ldflags="-X 'main.Version="$GIT_TAG_NAME"'" 
         ./wrfoutput -v
     
     - name: Upload binaries to release
