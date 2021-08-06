@@ -2,6 +2,7 @@ package wrfoutput
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -48,7 +49,7 @@ type Results struct {
 
 // Collect ...
 func (r Results) Collect() ([]*FileInfo, error) {
-	var actual []*FileInfo
+	actual := []*FileInfo{}
 
 	for file := range r.Files {
 		actual = append(actual, file)
@@ -115,6 +116,61 @@ func Parse(r io.Reader) *Results {
 	go parser.Parse(r)
 
 	return parser.Results
+}
+
+// MarshalStreams ...
+func MarshalStreams(in io.Reader, out io.Writer) error {
+	parser := NewParser()
+
+	go parser.Parse(in)
+
+	for file := range parser.Results.Files {
+		buff, err := json.Marshal(file)
+		if err != nil {
+			return err
+		}
+
+		if _, err = fmt.Fprintln(out, string(buff)); err != nil {
+			return err
+		}
+	}
+
+	if err := <-parser.Results.Errs; err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// UnmarshalResultsStream parse results of wrfoutput command
+// and unmarshal it into a channel of FileInfo structs
+func UnmarshalResultsStream(r io.Reader) *Results {
+	results := &Results{
+		Files:   make(chan *FileInfo),
+		Errs:    make(chan error, 1),
+		OnClose: noop,
+	}
+
+	go func() {
+		var err error
+
+		scanner := bufio.NewScanner(r)
+		for scanner.Scan() {
+			line := scanner.Bytes()
+			var file FileInfo
+			err = json.Unmarshal(line, &file)
+			if err != nil {
+				break
+			}
+			results.Files <- &file
+		}
+		if err == nil {
+			err = scanner.Err()
+		}
+		results.close(&err)
+	}()
+
+	return results
 }
 
 // Parser ...

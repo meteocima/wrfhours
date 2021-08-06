@@ -2,6 +2,8 @@ package wrfoutput
 
 import (
 	"errors"
+	"io"
+	"os"
 	"path"
 	"path/filepath"
 	"runtime"
@@ -106,6 +108,61 @@ Timing for Writing auxhist23_d01_2021-08-06_00:00:00 for domain        1:    0.1
 		assert.EqualError(err, "Wrong format for start instant line `d01 2021-08-RR_00:00:00 ciao`: parsing time \"2021-08-RR_00:00:00\" as \"2006-01-02_15:04:05\": cannot parse \"RR_00:00:00\" as \"02\"")
 	})
 
+	checkResults := func(actual []*FileInfo) {
+		assert.Equal(201, len(actual))
+
+		assert.Equal(FileInfo{
+			Type:      "wrfout",
+			Domain:    1,
+			Instant:   time.Date(2021, 8, 4, 0, 0, 0, 0, time.UTC),
+			Filename:  "wrfout_d01_2021-08-04_00:00:00",
+			HourProgr: 0,
+		}, *actual[0])
+
+		assert.Equal(FileInfo{
+			Type:      "wrfout",
+			Domain:    3,
+			Instant:   time.Date(2021, 8, 4, 1, 0, 0, 0, time.UTC),
+			Filename:  "wrfout_d03_2021-08-04_01:00:00",
+			HourProgr: 1,
+		}, *actual[10])
+
+		assert.Equal(FileInfo{
+			Type:      "auxhist23",
+			Domain:    3,
+			Instant:   time.Date(2021, 8, 5, 23, 0, 0, 0, time.UTC),
+			Filename:  "auxhist23_d03_2021-08-05_23:00:00",
+			HourProgr: 47,
+		}, *actual[196])
+	}
+
+	t.Run("Marshal / Unmarshal", func(t *testing.T) {
+		expected := make([]int, 50)
+
+		for idx := 0; idx <= 49; idx++ {
+			expected[idx] = idx
+		}
+
+		file, err := os.Open(fixtures("rsl.out.0000"))
+		require.NoError(err)
+		defer file.Close()
+
+		r, w := io.Pipe()
+
+		go func() {
+			defer w.Close()
+			err := MarshalStreams(file, w)
+			require.NoError(err)
+		}()
+
+		results := UnmarshalResultsStream(r)
+
+		actual, err := results.Collect()
+		require.NoError(err)
+		checkResults(actual)
+
+	})
+
 	t.Run("EachFileDo complete file", func(t *testing.T) {
 		expected := make([]int, 50)
 
@@ -123,31 +180,7 @@ Timing for Writing auxhist23_d01_2021-08-06_00:00:00 for domain        1:    0.1
 
 		require.NoError(err)
 
-		assert.Equal(201, len(actual))
-
-		assert.Equal(FileInfo{
-			Type:      "wrfout",
-			Domain:    1,
-			Instant:   time.Date(2021, 8, 4, 0, 0, 0, 0, time.UTC),
-			Filename:  "wrfout_d01_2021-08-04_00:00:00",
-			HourProgr: 0,
-		}, *actual[0])
-
-		assert.Equal(FileInfo{
-			Type:      "wrfout",
-			Domain:    3,
-			Instant:   time.Date(2021, 8, 4, 1, 0, 0, 0, time.UTC),
-			Filename:  "wrfout_d03_2021-08-04_01:00:00",
-			HourProgr: 1,
-		}, *actual[10])
-
-		assert.Equal(FileInfo{
-			Type:      "auxhist23",
-			Domain:    3,
-			Instant:   time.Date(2021, 8, 5, 23, 0, 0, 0, time.UTC),
-			Filename:  "auxhist23_d03_2021-08-05_23:00:00",
-			HourProgr: 47,
-		}, *actual[196])
+		checkResults(actual)
 	})
 
 	t.Run("Collect complete file", func(t *testing.T) {
@@ -161,31 +194,7 @@ Timing for Writing auxhist23_d01_2021-08-06_00:00:00 for domain        1:    0.1
 		actual, err := results.Collect()
 		require.NoError(err)
 
-		assert.Equal(201, len(actual))
-
-		assert.Equal(FileInfo{
-			Type:      "wrfout",
-			Domain:    1,
-			Instant:   time.Date(2021, 8, 4, 0, 0, 0, 0, time.UTC),
-			Filename:  "wrfout_d01_2021-08-04_00:00:00",
-			HourProgr: 0,
-		}, *actual[0])
-
-		assert.Equal(FileInfo{
-			Type:      "wrfout",
-			Domain:    3,
-			Instant:   time.Date(2021, 8, 4, 1, 0, 0, 0, time.UTC),
-			Filename:  "wrfout_d03_2021-08-04_01:00:00",
-			HourProgr: 1,
-		}, *actual[10])
-
-		assert.Equal(FileInfo{
-			Type:      "auxhist23",
-			Domain:    3,
-			Instant:   time.Date(2021, 8, 5, 23, 0, 0, 0, time.UTC),
-			Filename:  "auxhist23_d03_2021-08-05_23:00:00",
-			HourProgr: 47,
-		}, *actual[196])
+		checkResults(actual)
 
 	})
 
