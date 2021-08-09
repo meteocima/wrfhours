@@ -44,8 +44,58 @@ Timing for Writing auxhist23_d01_2021-08-06_00:00:00 for domain        1:    0.1
 		assert.Nil(actual)
 		assert.EqualError(err, "OnClose hook failed: TEST")
 	})
+	t.Run("OnFileDo with multiple filters", func(t *testing.T) {
 
-	//return
+		results := ParseFile(fixtures("rsl.out.0000"))
+
+		var actualD3 []*FileInfo
+		var actualD1 []*FileInfo
+
+		results.OnFileDo(Filter{Type: "wrfout", Domain: 3}, func(file *FileInfo) error {
+			actualD3 = append(actualD3, file)
+			return nil
+		})
+
+		results.OnFileDo(Filter{Type: "wrfout", Domain: 1}, func(file *FileInfo) error {
+			actualD1 = append(actualD1, file)
+			return nil
+		})
+
+		require.NoError(results.Execute())
+
+		assert.Equal(1, len(actualD1))
+
+		assert.Equal(FileInfo{
+			Type:      "wrfout",
+			Domain:    1,
+			Instant:   time.Date(2021, 8, 4, 0, 0, 0, 0, time.UTC),
+			Filename:  "wrfout_d01_2021-08-04_00:00:00",
+			HourProgr: 0,
+		}, *actualD1[0])
+
+		assert.Equal(49, len(actualD3))
+
+		assert.Equal(FileInfo{
+			Type:      "wrfout",
+			Domain:    3,
+			Instant:   time.Date(2021, 8, 4, 0, 0, 0, 0, time.UTC),
+			Filename:  "wrfout_d03_2021-08-04_00:00:00",
+			HourProgr: 0,
+		}, *actualD3[0])
+
+		//Timing for Writing wrfout_d03_2021-08-04_08:00:00 for domain        3:    0.88979 elapsed seconds
+
+		assert.Equal(FileInfo{
+			Type:      "wrfout",
+			Domain:    3,
+			Instant:   time.Date(2021, 8, 4, 10, 0, 0, 0, time.UTC),
+			Filename:  "wrfout_d03_2021-08-04_10:00:00",
+			HourProgr: 10,
+		}, *actualD3[10])
+
+	})
+
+	// return
 
 	t.Run("emit error on wrong domain", func(t *testing.T) {
 		results := ParseFile(fixtures("wrong-domain"))
@@ -137,11 +187,6 @@ Timing for Writing auxhist23_d01_2021-08-06_00:00:00 for domain        1:    0.1
 	}
 
 	t.Run("Marshal / Unmarshal", func(t *testing.T) {
-		expected := make([]int, 50)
-
-		for idx := 0; idx <= 49; idx++ {
-			expected[idx] = idx
-		}
 
 		file, err := os.Open(fixtures("rsl.out.0000"))
 		require.NoError(err)
@@ -163,32 +208,56 @@ Timing for Writing auxhist23_d01_2021-08-06_00:00:00 for domain        1:    0.1
 
 	})
 
-	t.Run("EachFileDo complete file", func(t *testing.T) {
-		expected := make([]int, 50)
-
-		for idx := 0; idx <= 49; idx++ {
-			expected[idx] = idx
-		}
+	t.Run("OnFileDo complete file", func(t *testing.T) {
 
 		results := ParseFile(fixtures("rsl.out.0000"))
 		var actual []*FileInfo
 
-		err := results.EachFileDo(func(file *FileInfo) error {
+		err := results.OnFileDo(All, func(file *FileInfo) error {
 			actual = append(actual, file)
 			return nil
-		})
+		}).Execute()
 
 		require.NoError(err)
 
 		checkResults(actual)
 	})
 
-	t.Run("Collect complete file", func(t *testing.T) {
-		expected := make([]int, 50)
+	t.Run("OnFileDo with filters", func(t *testing.T) {
 
-		for idx := 0; idx <= 49; idx++ {
-			expected[idx] = idx
-		}
+		results := ParseFile(fixtures("rsl.out.0000"))
+		var actual []*FileInfo
+
+		err := results.OnFileDo(Filter{Type: "wrfout", Domain: 3}, func(file *FileInfo) error {
+			actual = append(actual, file)
+			return nil
+		}).Execute()
+
+		require.NoError(err)
+
+		assert.Equal(49, len(actual))
+
+		assert.Equal(FileInfo{
+			Type:      "wrfout",
+			Domain:    3,
+			Instant:   time.Date(2021, 8, 4, 0, 0, 0, 0, time.UTC),
+			Filename:  "wrfout_d03_2021-08-04_00:00:00",
+			HourProgr: 0,
+		}, *actual[0])
+
+		//Timing for Writing wrfout_d03_2021-08-04_08:00:00 for domain        3:    0.88979 elapsed seconds
+
+		assert.Equal(FileInfo{
+			Type:      "wrfout",
+			Domain:    3,
+			Instant:   time.Date(2021, 8, 4, 10, 0, 0, 0, time.UTC),
+			Filename:  "wrfout_d03_2021-08-04_10:00:00",
+			HourProgr: 10,
+		}, *actual[10])
+
+	})
+
+	t.Run("Collect complete file", func(t *testing.T) {
 
 		results := ParseFile(fixtures("rsl.out.0000"))
 		actual, err := results.Collect()

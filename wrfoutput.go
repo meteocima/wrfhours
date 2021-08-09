@@ -28,6 +28,11 @@ type FileInfo struct {
 	Filename  string
 }
 
+type execHandler struct {
+	fn     func(info *FileInfo) error
+	filter Filter
+}
+
 // Results contains the results of a
 // Parse method call. It consists of
 // an Errs chan, eventually emitting
@@ -42,9 +47,10 @@ type FileInfo struct {
 // the caller has done reading Files channel.
 // Both channel are closed by the Parse call.
 type Results struct {
-	Files   chan *FileInfo
-	Errs    chan error
-	OnClose func() error
+	Files    chan *FileInfo
+	Errs     chan error
+	OnClose  func() error
+	handlers []execHandler
 }
 
 // Collect ...
@@ -62,16 +68,45 @@ func (r Results) Collect() ([]*FileInfo, error) {
 	return actual, nil
 }
 
-// EachFileDo ...
-func (r Results) EachFileDo(fn func(info *FileInfo) error) error {
+// Filter contains filter to
+// tell wich file to filter
+// in a OnFileDo execution
+type Filter struct {
+	// type of file to filter, e.g. auxhist23, wrfout etc.
+	// if an empty string, no filter is applyed for file type
+	Type string
+	// domain to filter, if 0 , no filter is applyed for domain
+	Domain int
+}
+
+// All ...
+var All = Filter{}
+
+// Execute ...
+func (r Results) Execute() error {
 	for file := range r.Files {
-		err := fn(file)
-		if err != nil {
-			return err
+		for _, handler := range r.handlers {
+			if handler.filter.Domain != 0 && handler.filter.Domain != file.Domain {
+				continue
+			}
+			if handler.filter.Type != "" && handler.filter.Type != file.Type {
+				continue
+			}
+
+			err := handler.fn(file)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
 	return <-r.Errs
+}
+
+// OnFileDo ...
+func (r *Results) OnFileDo(filter Filter, fn func(info *FileInfo) error) *Results {
+	r.handlers = append(r.handlers, execHandler{fn, filter})
+	return r
 }
 
 func (r Results) close(prevErr *error) {
