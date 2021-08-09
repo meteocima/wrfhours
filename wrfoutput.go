@@ -8,7 +8,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -49,13 +48,12 @@ type execHandler struct {
 // the caller has done reading Files channel.
 // Both channel are closed by the Parse call.
 type Results struct {
-	Files       chan *FileInfo
-	files       chan *FileInfo
-	Errs        chan error
-	OnClose     func() error
-	handlers    []execHandler
-	timeout     time.Duration
-	timeoutLock sync.Mutex
+	Files    chan *FileInfo
+	files    chan *FileInfo
+	Errs     chan error
+	OnClose  func() error
+	handlers []execHandler
+	timeout  time.Duration
 }
 
 // Collect ...
@@ -98,9 +96,8 @@ func (r *Results) Execute() error {
 				continue
 			}
 
-			err := handler.fn(file)
-			if err != nil {
-				return err
+			if err := handler.fn(file); err != nil {
+				return fmt.Errorf("OnFileDo handler failed: %s", err)
 			}
 		}
 	}
@@ -112,13 +109,6 @@ func (r *Results) Execute() error {
 func (r *Results) OnFileDo(filter Filter, fn func(info *FileInfo) error) *Results {
 	r.handlers = append(r.handlers, execHandler{fn, filter})
 	return r
-}
-
-// SetTimeout ...
-func (r *Results) SetTimeout(value time.Duration) {
-	r.timeoutLock.Lock()
-	defer r.timeoutLock.Unlock()
-	r.timeout = value
 }
 
 func (r *Results) close(prevErr *error) {
@@ -146,12 +136,12 @@ func ParseFile(wrfLogPath string) *Results {
 
 	file, err := os.Open(wrfLogPath)
 	if err != nil {
-		parser := NewParser(10 * time.Millisecond)
+		parser := NewParser(time.Millisecond)
 		parser.Results.close(&err)
 		return parser.Results
 	}
 
-	res := Parse(file, 10*time.Millisecond)
+	res := Parse(file, 100*time.Millisecond)
 	res.OnClose = file.Close
 
 	return res
@@ -179,7 +169,7 @@ func MarshalStreams(in io.Reader, out io.Writer) error {
 		}
 
 		if _, err = fmt.Fprintln(out, string(buff)); err != nil {
-			return err
+			return fmt.Errorf("MarshalStreams failed: error while writing: %w", err)
 		}
 	}
 
@@ -208,6 +198,7 @@ func UnmarshalResultsStream(r io.Reader) *Results {
 			var file FileInfo
 			err = json.Unmarshal(line, &file)
 			if err != nil {
+				err = fmt.Errorf("UnmarshalResultsStream failed: error while reading: %w", err)
 				break
 			}
 			results.Files <- &file
@@ -225,8 +216,8 @@ func UnmarshalResultsStream(r io.Reader) *Results {
 type Parser struct {
 	currline string
 	Start    *time.Time
+	ok       bool
 	Results  *Results
-	failure  error
 }
 
 // NewParser ...
@@ -234,27 +225,23 @@ func NewParser(timeout time.Duration) Parser {
 
 	return Parser{
 		Results: &Results{
-			Files:       make(chan *FileInfo),
-			Errs:        make(chan error, 1),
-			OnClose:     noop,
-			files:       make(chan *FileInfo),
-			timeout:     timeout,
-			timeoutLock: sync.Mutex{},
+			Files:   make(chan *FileInfo),
+			Errs:    make(chan error, 1),
+			OnClose: noop,
+			files:   make(chan *FileInfo),
+			timeout: timeout,
 		},
 	}
 }
 
 // Parse ...
 func (parser *Parser) Parse(r io.Reader) {
-	//defer parser.Results.close(&parser.failure)
-
 	var done int32
+	var failure atomic.Value
 
 	go func() {
 		hasDone := atomic.LoadInt32(&done) == 1
-		//parser.Results.timeoutLock.Lock()
-		//timeout := parser.Results.timeout
-		//parser.Results.timeoutLock.Unlock()
+
 		for !hasDone {
 			select {
 			case f := <-parser.Results.files:
@@ -262,14 +249,18 @@ func (parser *Parser) Parse(r io.Reader) {
 			case <-time.After(parser.Results.timeout):
 				hasDone = atomic.LoadInt32(&done) == 1
 				if !hasDone {
-					parser.failure = fmt.Errorf("Timeout expired: no new files created for more than %s", parser.Results.timeout)
+					failure.Store(fmt.Errorf("Timeout expired: no new files created for more than %s", parser.Results.timeout))
 					atomic.StoreInt32(&done, 1)
 					break
 				}
 			}
 			hasDone = atomic.LoadInt32(&done) == 1
 		}
-		parser.Results.close(&parser.failure)
+		err, ok := failure.Load().(error)
+		if !ok {
+			err = nil
+		}
+		parser.Results.close(&err)
 
 	}()
 
@@ -278,7 +269,8 @@ func (parser *Parser) Parse(r io.Reader) {
 	hasDone := atomic.LoadInt32(&done) == 1
 	for scanner.Scan() && !hasDone {
 		parser.currline = scanner.Text()
-		if parser.parseCurrLine() {
+		if err := parser.parseCurrLine(); err != nil {
+			failure.Store(err)
 			atomic.StoreInt32(&done, 1)
 			return
 		}
@@ -286,33 +278,42 @@ func (parser *Parser) Parse(r io.Reader) {
 	}
 
 	if !hasDone {
-		parser.failure = scanner.Err()
+		err := scanner.Err()
+		if err != nil {
+			failure.Store(err)
+		} else if !parser.ok {
+			failure.Store(fmt.Errorf("input stream completed without success log line"))
+		}
 		atomic.StoreInt32(&done, 1)
 	}
 }
 
-func (parser *Parser) parseCurrLine() bool {
+func (parser *Parser) parseCurrLine() error {
 
 	if parser.isStartInstantLine() {
 		if err := parser.parseStartInstant(); err != nil {
-			parser.failure = err
-			return true
+			return err
 		}
-		return false
+		return nil
 	}
 
 	if parser.isFileInfoLine() {
 		info, err := parser.parseFileInfo()
 		if err != nil {
-			parser.failure = err
-			return true
+
+			return err
 		}
 
 		if info != restartFile {
 			parser.Results.files <- info
 		}
 	}
-	return false
+
+	if parser.isSuccessLine() {
+		parser.ok = true
+	}
+
+	return nil
 
 }
 
@@ -396,8 +397,12 @@ func (parser *Parser) parseStartInstant() error {
 	return nil
 }
 
+func (parser *Parser) isSuccessLine() bool {
+	return strings.HasSuffix(parser.currline, "SUCCESS COMPLETE WRF")
+}
+
 func (parser *Parser) isStartInstantLine() bool {
-	return strings.HasPrefix(parser.currline, "d01 ")
+	return strings.HasPrefix(parser.currline, "d01 ") && parser.Start == nil
 }
 
 func (parser *Parser) isFileInfoLine() bool {
