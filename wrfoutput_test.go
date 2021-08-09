@@ -2,6 +2,7 @@ package wrfoutput
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path"
@@ -30,13 +31,61 @@ func TestParseFile(t *testing.T) {
 	assert := assert.New(t)
 	require := require.New(t)
 
+	t.Run("emit error on timeout expired", func(t *testing.T) {
+		r, w := io.Pipe()
+
+		go func() {
+			time.Sleep(10 * time.Millisecond)
+			fmt.Fprintln(w, "d01 2021-08-04_00:00:00  alloc_space_field: domain            2 ,                5403068  bytes allocated")
+			time.Sleep(10 * time.Millisecond)
+			fmt.Fprintln(w, "Timing for Writing auxhist23_d01_2021-08-06_00:00:00 for domain        1:    0.10153 elapsed seconds")
+			time.Sleep(140 * time.Millisecond)
+			w.Close()
+		}()
+
+		results := Parse(r, 20*time.Millisecond)
+		//results.SetTimeout(20 * time.Millisecond)
+		actual, err := results.Collect()
+
+		assert.Nil(actual)
+		assert.EqualError(err, "Timeout expired: no new files created for more than 20ms")
+	})
+
+	t.Run("parse stream with pauses", func(t *testing.T) {
+		r, w := io.Pipe()
+
+		go func() {
+			time.Sleep(10 * time.Millisecond)
+			fmt.Fprintln(w, "d01 2021-08-04_00:00:00  alloc_space_field: domain            2 ,                5403068  bytes allocated")
+			time.Sleep(10 * time.Millisecond)
+			fmt.Fprintln(w, "Timing for Writing auxhist23_d01_2021-08-06_00:00:00 for domain        1:    0.10153 elapsed seconds")
+			time.Sleep(10 * time.Millisecond)
+			w.Close()
+		}()
+
+		results := Parse(r, 30*time.Millisecond)
+		actual, err := results.Collect()
+
+		require.NoError(err)
+
+		assert.Equal(1, len(actual))
+
+		assert.Equal(FileInfo{
+			Type:      "auxhist23",
+			Domain:    1,
+			Instant:   time.Date(2021, 8, 6, 0, 0, 0, 0, time.UTC),
+			Filename:  "auxhist23_d01_2021-08-06_00:00:00",
+			HourProgr: 48,
+		}, *actual[0])
+	})
+
 	t.Run("emit error on failed on close", func(t *testing.T) {
 		r := strings.NewReader(`
 d01 2021-08-04_00:00:00  alloc_space_field: domain            2 ,                5403068  bytes allocated
 Timing for Writing auxhist23_d01_2021-08-06_00:00:00 for domain        1:    0.10153 elapsed seconds
 		`)
 
-		results := Parse(r)
+		results := Parse(r, 20*time.Millisecond)
 		results.OnClose = func() error {
 			return errors.New("TEST")
 		}
@@ -44,6 +93,7 @@ Timing for Writing auxhist23_d01_2021-08-06_00:00:00 for domain        1:    0.1
 		assert.Nil(actual)
 		assert.EqualError(err, "OnClose hook failed: TEST")
 	})
+
 	t.Run("OnFileDo with multiple filters", func(t *testing.T) {
 
 		results := ParseFile(fixtures("rsl.out.0000"))
