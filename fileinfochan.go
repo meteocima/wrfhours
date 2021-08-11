@@ -1,4 +1,4 @@
-package wrfoutput
+package wrfhours
 
 import (
 	"fmt"
