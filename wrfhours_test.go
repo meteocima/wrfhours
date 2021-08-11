@@ -1,13 +1,11 @@
 package wrfhours
 
 import (
+	"embed"
 	"errors"
 	"fmt"
 	"io"
-	"os"
-	"path"
-	"path/filepath"
-	"runtime"
+	"io/fs"
 	"strings"
 	"testing"
 	"time"
@@ -16,16 +14,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func fixtures(file string) string {
-	_, thisfile, _, ok := runtime.Caller(0)
-	if !ok {
-		panic("cannot retrieve the source file path")
-	}
-
-	rootdir := filepath.Dir(thisfile)
-
-	return path.Join(rootdir, "fixtures", file)
-}
+//go:embed fixtures
+var fixtureRootFS embed.FS
+var fixtureFS, _ = fs.Sub(fixtureRootFS, "fixtures")
 
 func TestParseFile(t *testing.T) {
 
@@ -49,7 +40,7 @@ func TestParseFile(t *testing.T) {
 
 	t.Run("Marshal / Unmarshal", func(t *testing.T) {
 
-		file, err := os.Open(fixtures("rsl.out.0000"))
+		file, err := fixtureFS.Open("rsl.out.0000")
 		require.NoError(t, err)
 		defer file.Close()
 
@@ -70,10 +61,10 @@ func TestParseFile(t *testing.T) {
 	})
 
 	t.Run("emit error on file open error", func(t *testing.T) {
-		results := ParseFile("doesnt-exist")
+		results := ParseFile(fixtureFS, "doesnt-exist")
 		actual, err := results.Collect()
 		assert.Nil(t, actual)
-		assert.EqualError(t, err, "open doesnt-exist: no such file or directory")
+		assert.EqualError(t, err, "open doesnt-exist: file does not exist")
 	})
 
 	const successLine = "SUCCESS COMPLETE WRF"
@@ -99,7 +90,7 @@ func TestParseFile(t *testing.T) {
 	})
 	t.Run("OnFileDo with multiple filters", func(t *testing.T) {
 
-		results := ParseFile(fixtures("rsl.out.0000"))
+		results := ParseFile(fixtureFS, "rsl.out.0000")
 
 		var actualD3 []*FileInfo
 		var actualD1 []*FileInfo
@@ -210,7 +201,7 @@ SUCCESS COMPLETE WRF
 	})
 
 	t.Run("emit error on wrong domain", func(t *testing.T) {
-		results := ParseFile(fixtures("wrong-domain"))
+		results := ParseFile(fixtureFS, "wrong-domain")
 		actual, err := results.Collect()
 		assert.Nil(t, actual)
 		assert.EqualError(t, err, "Wrong format for timing line `Timing for Writing auxhist23_d01_2021-08-06_00:00:00 for!!domain        1:    0.10153 elapsed seconds`: `for domain` expected to appears in line")
@@ -222,42 +213,42 @@ SUCCESS COMPLETE WRF
 	})
 
 	t.Run("emit error when start instant is missing", func(t *testing.T) {
-		results := ParseFile(fixtures("wrong-without-start-instant"))
+		results := ParseFile(fixtureFS, "wrong-without-start-instant")
 		actual, err := results.Collect()
 		assert.Nil(t, actual)
 		assert.EqualError(t, err, "Start line not found yet")
 	})
 
 	t.Run("emit error on wrong number of filename parts", func(t *testing.T) {
-		results := ParseFile(fixtures("wrong-filename-parts"))
+		results := ParseFile(fixtureFS, "wrong-filename-parts")
 		actual, err := results.Collect()
 		assert.Nil(t, actual)
 		assert.EqualError(t, err, "Wrong format for timing line `Timing for Writing auxhist23_d01_2021-08-06_00_00:00 for domain        1:    0.10153 elapsed seconds`: filename expected to be formed by 4 parts separated by underscores")
 	})
 
 	t.Run("emit error on wrong domain number", func(t *testing.T) {
-		results := ParseFile(fixtures("wrong-domain-num"))
+		results := ParseFile(fixtureFS, "wrong-domain-num")
 		actual, err := results.Collect()
 		assert.Nil(t, actual)
 		assert.EqualError(t, err, "Wrong format for timing line `Timing for Writing auxhist23_dF1_2021-08-06_00:00:00 for domain        1:    0.10153 elapsed seconds`: invalid domain: strconv.ParseInt: parsing \"F1\": invalid syntax")
 	})
 
 	t.Run("emit error on wrong instant", func(t *testing.T) {
-		results := ParseFile(fixtures("wrong-instant"))
+		results := ParseFile(fixtureFS, "wrong-instant")
 		actual, err := results.Collect()
 		assert.Nil(t, actual)
 		assert.EqualError(t, err, "Wrong format for timing line `Timing for Writing auxhist23_d01_2021-08-RR_00:00:00 for domain        1:    0.10153 elapsed seconds`: invalid time instant: parsing time \"2021-08-RR00:00:00\" as \"2006-01-0215:04:05\": cannot parse \"RR00:00:00\" as \"02\"")
 	})
 
 	t.Run("emit error on wrong start instant line", func(t *testing.T) {
-		results := ParseFile(fixtures("wrong-start-instant"))
+		results := ParseFile(fixtureFS, "wrong-start-instant")
 		actual, err := results.Collect()
 		assert.Nil(t, actual)
 		assert.EqualError(t, err, "Wrong format for start instant line `d01 2021-08-04_00:00:00`: line must contains at leas 3 space separated parts. e.g. `d01 2021-08-04_00:00:00 something`")
 	})
 
 	t.Run("emit error on wrong start instant date format", func(t *testing.T) {
-		results := ParseFile(fixtures("wrong-start-instant-format"))
+		results := ParseFile(fixtureFS, "wrong-start-instant-format")
 		actual, err := results.Collect()
 		assert.Nil(t, actual)
 		assert.EqualError(t, err, "Wrong format for start instant line `d01 2021-08-RR_00:00:00 ciao`: parsing time \"2021-08-RR_00:00:00\" as \"2006-01-02_15:04:05\": cannot parse \"RR_00:00:00\" as \"02\"")
@@ -265,7 +256,7 @@ SUCCESS COMPLETE WRF
 
 	t.Run("Marshal on failing writer", func(t *testing.T) {
 
-		file, err := os.Open(fixtures("rsl.out.0000"))
+		file, err := fixtureFS.Open("rsl.out.0000")
 		require.NoError(t, err)
 		defer file.Close()
 
@@ -278,7 +269,7 @@ SUCCESS COMPLETE WRF
 
 	t.Run("OnFileDo with failing handler", func(t *testing.T) {
 
-		results := ParseFile(fixtures("rsl.out.0000"))
+		results := ParseFile(fixtureFS, "rsl.out.0000")
 
 		err := results.OnFileDo(All, func(file *FileInfo) error {
 			return fmt.Errorf("TEST")
@@ -290,7 +281,7 @@ SUCCESS COMPLETE WRF
 
 	t.Run("OnFileDo complete file", func(t *testing.T) {
 
-		results := ParseFile(fixtures("rsl.out.0000"))
+		results := ParseFile(fixtureFS, "rsl.out.0000")
 		var actual []*FileInfo
 
 		err := results.OnFileDo(All, func(file *FileInfo) error {
@@ -305,7 +296,7 @@ SUCCESS COMPLETE WRF
 
 	t.Run("OnFileDo with filters", func(t *testing.T) {
 
-		results := ParseFile(fixtures("rsl.out.0000"))
+		results := ParseFile(fixtureFS, "rsl.out.0000")
 		var actual []*FileInfo
 
 		err := results.OnFileDo(Filter{Type: "wrfout", Domain: 3}, func(file *FileInfo) error {
@@ -339,7 +330,7 @@ SUCCESS COMPLETE WRF
 
 	t.Run("Collect complete file", func(t *testing.T) {
 
-		results := ParseFile(fixtures("rsl.out.0000"))
+		results := ParseFile(fixtureFS, "rsl.out.0000")
 		actual, err := results.Collect()
 		require.NoError(t, err)
 

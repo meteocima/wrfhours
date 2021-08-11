@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
+	"io/fs"
 	"time"
 )
 
@@ -53,9 +53,9 @@ func noop() error {
 }
 
 // ParseFile parse WRF log from a given file.
-func ParseFile(wrfLogPath string) *Parser {
+func ParseFile(fs fs.FS, wrfLogPath string) *Parser {
 
-	file, err := os.Open(wrfLogPath)
+	file, err := fs.Open(wrfLogPath)
 	if err != nil {
 		parser := NewParser(time.Millisecond)
 		go parser.EmitError(err)
