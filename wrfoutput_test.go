@@ -28,6 +28,25 @@ func fixtures(file string) string {
 }
 
 func TestParseFile(t *testing.T) {
+
+	t.Run("Unmarshal on wrong JSON", func(t *testing.T) {
+
+		r, w := io.Pipe()
+
+		go func() {
+			defer w.Close()
+			fmt.Fprintf(w, "TEST\n")
+		}()
+
+		results := UnmarshalResultsStream(r)
+		require.NotNil(t, results)
+		f := <-results.files
+		require.NotNil(t, f)
+
+		assert.EqualError(t, f.Err, "UnmarshalResultsStream failed: error while reading: invalid character 'T' looking for beginning of value")
+
+	})
+
 	t.Run("Marshal / Unmarshal", func(t *testing.T) {
 
 		file, err := os.Open(fixtures("rsl.out.0000"))
@@ -244,35 +263,19 @@ SUCCESS COMPLETE WRF
 		assert.EqualError(t, err, "Wrong format for start instant line `d01 2021-08-RR_00:00:00 ciao`: parsing time \"2021-08-RR_00:00:00\" as \"2006-01-02_15:04:05\": cannot parse \"RR_00:00:00\" as \"02\"")
 	})
 
-	/*
-		t.Run("Marshal on failing writer", func(t *testing.T) {
+	t.Run("Marshal on failing writer", func(t *testing.T) {
 
-			file, err := os.Open(fixtures("rsl.out.0000"))
-			require.NoError(t, err)
-			defer file.Close()
+		file, err := os.Open(fixtures("rsl.out.0000"))
+		require.NoError(t, err)
+		defer file.Close()
 
-			w := failingWriter{}
+		w := failingWriter{}
 
-			err = MarshalStreams(file, w)
-			assert.EqualError(t, err, "MarshalStreams failed: error while writing: TEST")
+		err = MarshalStreams(file, w)
+		assert.EqualError(t, err, "MarshalStreams failed: error while writing: TEST")
 
-		})
+	})
 
-		t.Run("Unmarshal on wrong JSON", func(t *testing.T) {
-
-			r, w := io.Pipe()
-
-			go func() {
-				defer w.Close()
-				fmt.Fprintf(w, "TEST\n")
-			}()
-
-			results := UnmarshalResultsStream(r)
-			assert.NotNil(t, results)
-			//assert.EqualError(t, <-results.Errs, "UnmarshalResultsStream failed: error while reading: invalid character 'T' looking for beginning of value")
-
-		})
-	*/
 	t.Run("OnFileDo with failing handler", func(t *testing.T) {
 
 		results := ParseFile(fixtures("rsl.out.0000"))

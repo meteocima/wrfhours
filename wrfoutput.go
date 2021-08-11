@@ -114,7 +114,6 @@ func UnmarshalResultsStream(r io.Reader) *Parser {
 			var file FileInfo
 			err = json.Unmarshal(line, &file)
 			if err != nil {
-				err = fmt.Errorf("UnmarshalResultsStream failed: error while reading: %w", err)
 				break
 			}
 			results.files <- &file
@@ -122,7 +121,12 @@ func UnmarshalResultsStream(r io.Reader) *Parser {
 		if err == nil {
 			err = scanner.Err()
 		}
-		//results.close(err)
+
+		if err != nil {
+			err = fmt.Errorf("UnmarshalResultsStream failed: error while reading: %w", err)
+			results.EmitError(err)
+			return
+		}
 		close(results.files)
 	}()
 
