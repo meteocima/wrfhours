@@ -58,11 +58,13 @@ type Results struct {
 	timeout  time.Duration
 }
 
+// EmitError ...
 func (r *Results) EmitError(err error) {
 	r.files <- &FileInfo{Err: err}
 	close(r.files)
 }
 
+// SetOnClose ...
 func (r *Results) SetOnClose(fn func() error) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
@@ -126,20 +128,6 @@ func (r *Results) OnFileDo(filter Filter, fn func(info *FileInfo) error) *Result
 	return r
 }
 
-/*
-func (r *Results) close(prevErr error) {
-	if prevErr == nil {
-		r.lock.Lock()
-		if err := r.onClose(); err != nil {
-			prevErr = fmt.Errorf("OnClose hook failed: %w", err)
-		}
-		r.lock.Unlock()
-	}
-	if prevErr != nil {
-		r.files <- &FileInfo{Err: prevErr}
-	}
-}
-*/
 var restartFile *FileInfo = nil
 
 func noop() error {
@@ -241,8 +229,6 @@ func NewParser(timeout time.Duration) Parser {
 	files := make(chan *FileInfo)
 
 	return Parser{
-		//timeout: timeout,
-
 		Results: &Results{
 			Files: NewFileInfoChan(timeout, files),
 			//Errs:    make(chan error, 1),
