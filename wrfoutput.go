@@ -53,13 +53,13 @@ func noop() error {
 }
 
 // ParseFile parse WRF log from a given file.
-func ParseFile(wrfLogPath string) *Results {
+func ParseFile(wrfLogPath string) *Parser {
 
 	file, err := os.Open(wrfLogPath)
 	if err != nil {
 		parser := NewParser(time.Millisecond)
-		go parser.Results.EmitError(err)
-		return parser.Results
+		go parser.EmitError(err)
+		return &parser
 	}
 
 	res := Parse(file, 100*time.Millisecond)
@@ -69,12 +69,12 @@ func ParseFile(wrfLogPath string) *Results {
 }
 
 // Parse parse WRF log from a given file.
-func Parse(r io.Reader, timeout time.Duration) *Results {
+func Parse(r io.Reader, timeout time.Duration) *Parser {
 	parser := NewParser(timeout)
 
 	go parser.Parse(r)
 
-	return parser.Results
+	return &parser
 }
 
 // MarshalStreams ...
@@ -83,7 +83,7 @@ func MarshalStreams(in io.Reader, out io.Writer) error {
 
 	go parser.Parse(in)
 
-	for file := range parser.Results.Files {
+	for file := range parser.Files {
 		if file.Err != nil {
 			return file.Err
 		}
@@ -102,12 +102,8 @@ func MarshalStreams(in io.Reader, out io.Writer) error {
 
 // UnmarshalResultsStream parse results of wrfoutput command
 // and unmarshal it into a channel of FileInfo structs
-func UnmarshalResultsStream(r io.Reader) *Results {
-	results := &Results{
-		Files: make(chan *FileInfo),
-		//Errs:    make(chan error, 1),
-		onClose: noop,
-	}
+func UnmarshalResultsStream(r io.Reader) *Parser {
+	results := NewParser(time.Second)
 
 	go func() {
 		var err error
@@ -121,14 +117,14 @@ func UnmarshalResultsStream(r io.Reader) *Results {
 				err = fmt.Errorf("UnmarshalResultsStream failed: error while reading: %w", err)
 				break
 			}
-			results.Files <- &file
+			results.files <- &file
 		}
 		if err == nil {
 			err = scanner.Err()
 		}
 		//results.close(err)
-		close(results.Files)
+		close(results.files)
 	}()
 
-	return results
+	return &results
 }

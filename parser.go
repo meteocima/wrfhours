@@ -10,11 +10,28 @@ import (
 	"time"
 )
 
+// Parser contains the results of a
+// Parse method call. It consists of
+// an Errs chan, eventually emitting
+// a single error when one occurs; a
+// Files chan, which emit all files info
+// parsed; a StartInstant, containing
+// first time instant of the simulation.
+// Files channel is blocking, and should be
+// read by the caller in order for the parsing
+// to proceed. Errs has a buffer of 1,
+// so it could be checked for errors after
+// the caller has done reading Files channel.
+// Both channel are closed by the Parse call.
 // Parser ...
 type Parser struct {
 	currline string
 	Start    *time.Time
-	Results  *Results
+	Files    FileInfoChan
+	files    chan *FileInfo
+	onClose  func() error
+	lock     sync.Mutex
+	handlers []execHandler
 }
 
 // NewParser ...
@@ -23,24 +40,22 @@ func NewParser(timeout time.Duration) Parser {
 	files := make(chan *FileInfo)
 
 	return Parser{
-		Results: &Results{
-			Files:   NewFileInfoChan(timeout, files),
-			onClose: noop,
-			files:   files,
-		},
+		Files:   NewFileInfoChan(timeout, files),
+		onClose: noop,
+		files:   files,
 	}
 }
 
 func (parser *Parser) runOnClose() {
-	parser.Results.lock.Lock()
-	defer parser.Results.lock.Unlock()
+	parser.lock.Lock()
+	defer parser.lock.Unlock()
 
-	if err := parser.Results.onClose(); err != nil {
-		parser.Results.EmitError(fmt.Errorf("OnClose hook failed: %w", err))
+	if err := parser.onClose(); err != nil {
+		parser.EmitError(fmt.Errorf("OnClose hook failed: %w", err))
 		return
 	}
 
-	close(parser.Results.files)
+	close(parser.files)
 }
 
 // Parse ...
@@ -55,23 +70,23 @@ func (parser *Parser) Parse(r io.Reader) {
 				parser.runOnClose()
 				return
 			}
-			parser.Results.EmitError(err)
+			parser.EmitError(err)
 			return
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
-		parser.Results.EmitError(err)
+		parser.EmitError(err)
 		return
 	}
 
 	err := fmt.Errorf("input stream completed without success log line")
-	parser.Results.EmitError(err)
+	parser.EmitError(err)
 
-	parser.Results.lock.Lock()
-	defer parser.Results.lock.Unlock()
+	parser.lock.Lock()
+	defer parser.lock.Unlock()
 
-	parser.Results.onClose()
+	parser.onClose()
 
 }
 
@@ -92,7 +107,7 @@ func (parser *Parser) parseCurrLine() error {
 		}
 
 		if info != restartFile {
-			parser.Results.files <- info
+			parser.files <- info
 		}
 	}
 
@@ -196,47 +211,24 @@ func (parser *Parser) isFileInfoLine() bool {
 	return strings.HasPrefix(parser.currline, filesPrefix)
 }
 
-// Results contains the results of a
-// Parse method call. It consists of
-// an Errs chan, eventually emitting
-// a single error when one occurs; a
-// Files chan, which emit all files info
-// parsed; a StartInstant, containing
-// first time instant of the simulation.
-// Files channel is blocking, and should be
-// read by the caller in order for the parsing
-// to proceed. Errs has a buffer of 1,
-// so it could be checked for errors after
-// the caller has done reading Files channel.
-// Both channel are closed by the Parse call.
-type Results struct {
-	Files FileInfoChan
-	files chan *FileInfo
-	//Errs     chan error
-	onClose  func() error
-	lock     sync.Mutex
-	handlers []execHandler
-	timeout  time.Duration
-}
-
 // EmitError ...
-func (r *Results) EmitError(err error) {
-	r.files <- &FileInfo{Err: err}
-	close(r.files)
+func (parser *Parser) EmitError(err error) {
+	parser.files <- &FileInfo{Err: err}
+	close(parser.files)
 }
 
 // SetOnClose ...
-func (r *Results) SetOnClose(fn func() error) {
-	r.lock.Lock()
-	defer r.lock.Unlock()
-	r.onClose = fn
+func (parser *Parser) SetOnClose(fn func() error) {
+	parser.lock.Lock()
+	defer parser.lock.Unlock()
+	parser.onClose = fn
 }
 
 // Collect ...
-func (r *Results) Collect() ([]*FileInfo, error) {
+func (parser *Parser) Collect() ([]*FileInfo, error) {
 	actual := []*FileInfo{}
 
-	for file := range r.Files {
+	for file := range parser.Files {
 		if file.Err != nil {
 			return nil, file.Err
 		}
@@ -247,12 +239,12 @@ func (r *Results) Collect() ([]*FileInfo, error) {
 }
 
 // Execute ...
-func (r *Results) Execute() error {
-	for file := range r.Files {
+func (parser *Parser) Execute() error {
+	for file := range parser.Files {
 		if file.Err != nil {
 			return file.Err
 		}
-		for _, handler := range r.handlers {
+		for _, handler := range parser.handlers {
 			if handler.filter.Domain != 0 && handler.filter.Domain != file.Domain {
 				continue
 			}
@@ -270,7 +262,7 @@ func (r *Results) Execute() error {
 }
 
 // OnFileDo ...
-func (r *Results) OnFileDo(filter Filter, fn func(info *FileInfo) error) *Results {
-	r.handlers = append(r.handlers, execHandler{fn, filter})
-	return r
+func (parser *Parser) OnFileDo(filter Filter, fn func(info *FileInfo) error) *Parser {
+	parser.handlers = append(parser.handlers, execHandler{fn, filter})
+	return parser
 }
