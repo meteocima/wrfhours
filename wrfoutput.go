@@ -8,7 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync/atomic"
+	"sync"
 	"time"
 )
 
@@ -27,6 +27,7 @@ type FileInfo struct {
 	// is hour 0)
 	HourProgr int
 	Filename  string
+	Err       error
 }
 
 type execHandler struct {
@@ -48,12 +49,24 @@ type execHandler struct {
 // the caller has done reading Files channel.
 // Both channel are closed by the Parse call.
 type Results struct {
-	Files    chan *FileInfo
-	files    chan *FileInfo
-	Errs     chan error
-	OnClose  func() error
+	Files FileInfoChan
+	files chan *FileInfo
+	//Errs     chan error
+	onClose  func() error
+	lock     sync.Mutex
 	handlers []execHandler
 	timeout  time.Duration
+}
+
+func (r *Results) EmitError(err error) {
+	r.files <- &FileInfo{Err: err}
+	close(r.files)
+}
+
+func (r *Results) SetOnClose(fn func() error) {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	r.onClose = fn
 }
 
 // Collect ...
@@ -61,13 +74,12 @@ func (r *Results) Collect() ([]*FileInfo, error) {
 	actual := []*FileInfo{}
 
 	for file := range r.Files {
+		if file.Err != nil {
+			return nil, file.Err
+		}
 		actual = append(actual, file)
 	}
 
-	err := <-r.Errs
-	if err != nil {
-		return nil, err
-	}
 	return actual, nil
 }
 
@@ -88,6 +100,9 @@ var All = Filter{}
 // Execute ...
 func (r *Results) Execute() error {
 	for file := range r.Files {
+		if file.Err != nil {
+			return file.Err
+		}
 		for _, handler := range r.handlers {
 			if handler.filter.Domain != 0 && handler.filter.Domain != file.Domain {
 				continue
@@ -102,7 +117,7 @@ func (r *Results) Execute() error {
 		}
 	}
 
-	return <-r.Errs
+	return nil
 }
 
 // OnFileDo ...
@@ -111,20 +126,20 @@ func (r *Results) OnFileDo(filter Filter, fn func(info *FileInfo) error) *Result
 	return r
 }
 
-func (r *Results) close(prevErr *error) {
-	close(r.Files)
-	//close(r.files)
-	if *prevErr == nil {
-		if err := r.OnClose(); err != nil {
-			*prevErr = fmt.Errorf("OnClose hook failed: %w", err)
+/*
+func (r *Results) close(prevErr error) {
+	if prevErr == nil {
+		r.lock.Lock()
+		if err := r.onClose(); err != nil {
+			prevErr = fmt.Errorf("OnClose hook failed: %w", err)
 		}
+		r.lock.Unlock()
 	}
-	if *prevErr != nil {
-		r.Errs <- *prevErr
+	if prevErr != nil {
+		r.files <- &FileInfo{Err: prevErr}
 	}
-	close(r.Errs)
 }
-
+*/
 var restartFile *FileInfo = nil
 
 func noop() error {
@@ -137,12 +152,12 @@ func ParseFile(wrfLogPath string) *Results {
 	file, err := os.Open(wrfLogPath)
 	if err != nil {
 		parser := NewParser(time.Millisecond)
-		parser.Results.close(&err)
+		go parser.Results.EmitError(err)
 		return parser.Results
 	}
 
 	res := Parse(file, 100*time.Millisecond)
-	res.OnClose = file.Close
+	res.SetOnClose(file.Close)
 
 	return res
 }
@@ -163,6 +178,9 @@ func MarshalStreams(in io.Reader, out io.Writer) error {
 	go parser.Parse(in)
 
 	for file := range parser.Results.Files {
+		if file.Err != nil {
+			return file.Err
+		}
 		buff, err := json.Marshal(file)
 		if err != nil {
 			return err
@@ -173,10 +191,6 @@ func MarshalStreams(in io.Reader, out io.Writer) error {
 		}
 	}
 
-	if err := <-parser.Results.Errs; err != nil {
-		return err
-	}
-
 	return nil
 }
 
@@ -184,9 +198,9 @@ func MarshalStreams(in io.Reader, out io.Writer) error {
 // and unmarshal it into a channel of FileInfo structs
 func UnmarshalResultsStream(r io.Reader) *Results {
 	results := &Results{
-		Files:   make(chan *FileInfo),
-		Errs:    make(chan error, 1),
-		OnClose: noop,
+		Files: make(chan *FileInfo),
+		//Errs:    make(chan error, 1),
+		onClose: noop,
 	}
 
 	go func() {
@@ -206,7 +220,8 @@ func UnmarshalResultsStream(r io.Reader) *Results {
 		if err == nil {
 			err = scanner.Err()
 		}
-		results.close(&err)
+		//results.close(err)
+		close(results.Files)
 	}()
 
 	return results
@@ -218,74 +233,68 @@ type Parser struct {
 	Start    *time.Time
 	ok       bool
 	Results  *Results
+	timeout  time.Duration
 }
 
 // NewParser ...
 func NewParser(timeout time.Duration) Parser {
 
+	files := make(chan *FileInfo)
+
 	return Parser{
+		timeout: timeout,
+
 		Results: &Results{
-			Files:   make(chan *FileInfo),
-			Errs:    make(chan error, 1),
-			OnClose: noop,
-			files:   make(chan *FileInfo),
-			timeout: timeout,
+			Files: NewFileInfoChan(timeout, files),
+			//Errs:    make(chan error, 1),
+			onClose: noop,
+			files:   files,
 		},
 	}
 }
 
 // Parse ...
 func (parser *Parser) Parse(r io.Reader) {
-	var done int32
-	var failure atomic.Value
-
-	go func() {
-		hasDone := atomic.LoadInt32(&done) == 1
-
-		for !hasDone {
-			select {
-			case f := <-parser.Results.files:
-				parser.Results.Files <- f
-			case <-time.After(parser.Results.timeout):
-				hasDone = atomic.LoadInt32(&done) == 1
-				if !hasDone {
-					failure.Store(fmt.Errorf("Timeout expired: no new files created for more than %s", parser.Results.timeout))
-					atomic.StoreInt32(&done, 1)
-					break
-				}
-			}
-			hasDone = atomic.LoadInt32(&done) == 1
-		}
-		err, ok := failure.Load().(error)
-		if !ok {
-			err = nil
-		}
-		parser.Results.close(&err)
-
-	}()
 
 	scanner := bufio.NewScanner(r)
 
-	hasDone := atomic.LoadInt32(&done) == 1
-	for scanner.Scan() && !hasDone {
+	for scanner.Scan() /**&& !hasDone*/ {
 		parser.currline = scanner.Text()
 		if err := parser.parseCurrLine(); err != nil {
-			failure.Store(err)
-			atomic.StoreInt32(&done, 1)
+			if err.Error() == "completed" {
+				parser.Results.lock.Lock()
+				if err := parser.Results.onClose(); err != nil {
+					parser.Results.EmitError(fmt.Errorf("OnClose hook failed: %w", err))
+					return
+				}
+				parser.Results.lock.Unlock()
+
+				close(parser.Results.files)
+				return
+			}
+			parser.Results.EmitError(err)
 			return
 		}
-		hasDone = atomic.LoadInt32(&done) == 1
 	}
 
-	if !hasDone {
-		err := scanner.Err()
-		if err != nil {
-			failure.Store(err)
-		} else if !parser.ok {
-			failure.Store(fmt.Errorf("input stream completed without success log line"))
-		}
-		atomic.StoreInt32(&done, 1)
+	err := scanner.Err()
+	if err == nil && !parser.ok {
+		err = fmt.Errorf("input stream completed without success log line")
 	}
+
+	if err != nil {
+		parser.Results.EmitError(err)
+		return
+	}
+
+	parser.Results.lock.Lock()
+	if err := parser.Results.onClose(); err != nil {
+		parser.Results.EmitError(fmt.Errorf("OnClose hook failed: %w", err))
+	}
+	parser.Results.lock.Unlock()
+
+	close(parser.Results.files)
+
 }
 
 func (parser *Parser) parseCurrLine() error {
@@ -311,6 +320,7 @@ func (parser *Parser) parseCurrLine() error {
 
 	if parser.isSuccessLine() {
 		parser.ok = true
+		return fmt.Errorf("completed")
 	}
 
 	return nil
