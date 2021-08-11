@@ -231,9 +231,8 @@ func UnmarshalResultsStream(r io.Reader) *Results {
 type Parser struct {
 	currline string
 	Start    *time.Time
-	ok       bool
 	Results  *Results
-	timeout  time.Duration
+	//timeout  time.Duration
 }
 
 // NewParser ...
@@ -242,7 +241,7 @@ func NewParser(timeout time.Duration) Parser {
 	files := make(chan *FileInfo)
 
 	return Parser{
-		timeout: timeout,
+		//timeout: timeout,
 
 		Results: &Results{
 			Files: NewFileInfoChan(timeout, files),
@@ -282,17 +281,18 @@ func (parser *Parser) Parse(r io.Reader) {
 		}
 	}
 
-	err := scanner.Err()
-	if err == nil && !parser.ok {
-		err = fmt.Errorf("input stream completed without success log line")
-	}
-
-	if err != nil {
+	if err := scanner.Err(); err != nil {
 		parser.Results.EmitError(err)
 		return
 	}
 
-	parser.runOnClose()
+	err := fmt.Errorf("input stream completed without success log line")
+	parser.Results.EmitError(err)
+
+	parser.Results.lock.Lock()
+	defer parser.Results.lock.Unlock()
+
+	parser.Results.onClose()
 
 }
 
@@ -318,7 +318,6 @@ func (parser *Parser) parseCurrLine() error {
 	}
 
 	if parser.isSuccessLine() {
-		parser.ok = true
 		return fmt.Errorf("completed")
 	}
 
