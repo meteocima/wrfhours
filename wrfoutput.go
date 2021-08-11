@@ -253,6 +253,18 @@ func NewParser(timeout time.Duration) Parser {
 	}
 }
 
+func (parser *Parser) runOnClose() {
+	parser.Results.lock.Lock()
+	defer parser.Results.lock.Unlock()
+
+	if err := parser.Results.onClose(); err != nil {
+		parser.Results.EmitError(fmt.Errorf("OnClose hook failed: %w", err))
+		return
+	}
+
+	close(parser.Results.files)
+}
+
 // Parse ...
 func (parser *Parser) Parse(r io.Reader) {
 
@@ -262,14 +274,7 @@ func (parser *Parser) Parse(r io.Reader) {
 		parser.currline = scanner.Text()
 		if err := parser.parseCurrLine(); err != nil {
 			if err.Error() == "completed" {
-				parser.Results.lock.Lock()
-				if err := parser.Results.onClose(); err != nil {
-					parser.Results.EmitError(fmt.Errorf("OnClose hook failed: %w", err))
-					return
-				}
-				parser.Results.lock.Unlock()
-
-				close(parser.Results.files)
+				parser.runOnClose()
 				return
 			}
 			parser.Results.EmitError(err)
@@ -287,13 +292,7 @@ func (parser *Parser) Parse(r io.Reader) {
 		return
 	}
 
-	parser.Results.lock.Lock()
-	if err := parser.Results.onClose(); err != nil {
-		parser.Results.EmitError(fmt.Errorf("OnClose hook failed: %w", err))
-	}
-	parser.Results.lock.Unlock()
-
-	close(parser.Results.files)
+	parser.runOnClose()
 
 }
 
