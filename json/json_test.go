@@ -47,7 +47,7 @@ func TestParseFile(t *testing.T) {
 
 		go func() {
 			defer w.Close()
-			err := Marshal(file, w)
+			err := Marshal(file, w, 100*time.Millisecond)
 			require.NoError(t, err)
 		}()
 
@@ -67,7 +67,7 @@ func TestParseFile(t *testing.T) {
 
 		w := failingWriter{}
 
-		err = Marshal(file, w)
+		err = Marshal(file, w, 100*time.Millisecond)
 		assert.EqualError(t, err, "Marshal failed: error while writing: TEST")
 
 	})

@@ -92,12 +92,12 @@ func (parser *Parser) forwardFilesWithTimeout(timeout time.Duration) {
 		case f := <-parser.files:
 			actualTimeout = timeout
 			if f.IsEmpty() {
-				// fmt.Printlnln("inch recevied nil")
+				fmt.Println("inch recevied nil")
 				return
 			}
-			// fmt.Printlnln("inch recevied ", f)
+			// fmt.Println("inch recevied ", f)
 			parser.Files <- f
-			// fmt.Printlnln("outch sent ", f)
+			// fmt.Println("outch sent ", f)
 
 			if f.Err != nil {
 				// fmt.Printlnln("return outch bacause err ")
@@ -138,7 +138,9 @@ func (parser *Parser) Parse(r io.Reader) {
 		parser.currline = scanner.Text()
 		if err = parser.parseCurrLine(); err != nil {
 			if err.Error() == "completed" {
+				fmt.Println("RUNONCLOSE")
 				parser.runOnClose(nil)
+				fmt.Println("RUNONCLOSE DONE")
 				return
 			}
 			break
@@ -220,6 +222,8 @@ func (parser *Parser) parseFileInfo() (info FileInfo) {
 
 	info.Filename = strings.TrimSpace(fnameParts[0])
 
+	// fmt.Println(info.Filename)
+
 	// skip WRF restart files with this form:
 	// `Timing for Writing restart for domain        1:    1.33332 elapsed seconds`
 	if info.Filename == "restart" {
@@ -288,7 +292,10 @@ func (parser *Parser) parseStartInstant() error {
 }
 
 func (parser *Parser) isSuccessLine() bool {
-	return strings.HasSuffix(parser.currline, "SUCCESS COMPLETE WRF")
+
+	res := strings.HasSuffix(parser.currline, "SUCCESS COMPLETE WRF")
+	fmt.Printf("is success %s: %t\n", parser.currline, res)
+	return res
 }
 
 func (parser *Parser) isStartInstantLine() bool {

@@ -11,8 +11,8 @@ import (
 )
 
 // Marshal ...
-func Marshal(in io.Reader, out io.Writer) error {
-	parser := wrfhours.NewParser(100 * time.Millisecond)
+func Marshal(in io.Reader, out io.Writer, timeout time.Duration) error {
+	parser := wrfhours.NewParser(timeout)
 
 	go parser.Parse(in)
 
@@ -29,6 +29,8 @@ func Marshal(in io.Reader, out io.Writer) error {
 			return fmt.Errorf("Marshal failed: error while writing: %w", err)
 		}
 	}
+
+	fmt.Println("MARSHAL DONE")
 
 	return nil
 }
