@@ -10,8 +10,8 @@ import (
 	"github.com/meteocima/wrfhours"
 )
 
-// MarshalStreams ...
-func MarshalStreams(in io.Reader, out io.Writer) error {
+// Marshal ...
+func Marshal(in io.Reader, out io.Writer) error {
 	parser := wrfhours.NewParser(10 * time.Millisecond)
 
 	go parser.Parse(in)
@@ -26,16 +26,16 @@ func MarshalStreams(in io.Reader, out io.Writer) error {
 		}
 
 		if _, err = fmt.Fprintln(out, string(buff)); err != nil {
-			return fmt.Errorf("MarshalStreams failed: error while writing: %w", err)
+			return fmt.Errorf("Marshal failed: error while writing: %w", err)
 		}
 	}
 
 	return nil
 }
 
-// UnmarshalResultsStream parse results of wrfoutput command
+// Unmarshal parse results of wrfoutput command
 // and unmarshal it into a channel of FileInfo structs
-func UnmarshalResultsStream(r io.Reader) *wrfhours.Parser {
+func Unmarshal(r io.Reader) *wrfhours.Parser {
 	results := wrfhours.NewParser(time.Second)
 
 	go func() {
@@ -60,7 +60,7 @@ func UnmarshalResultsStream(r io.Reader) *wrfhours.Parser {
 
 		if err != nil {
 			// fmt.Printlnln("err!")
-			err = fmt.Errorf("UnmarshalResultsStream failed: error while reading: %w", err)
+			err = fmt.Errorf("Unmarshal failed: error while reading: %w", err)
 			// fmt.Printlnln(err)
 			results.EmitError(err)
 			return

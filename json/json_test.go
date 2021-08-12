@@ -28,12 +28,12 @@ func TestParseFile(t *testing.T) {
 			fmt.Fprintf(w, "TEST\n")
 		}()
 
-		results := UnmarshalResultsStream(r)
+		results := Unmarshal(r)
 		require.NotNil(t, results)
 		f := <-results.Files
 		require.NotNil(t, f)
 
-		assert.EqualError(t, f.Err, "UnmarshalResultsStream failed: error while reading: invalid character 'T' looking for beginning of value")
+		assert.EqualError(t, f.Err, "Unmarshal failed: error while reading: invalid character 'T' looking for beginning of value")
 
 	})
 
@@ -47,11 +47,11 @@ func TestParseFile(t *testing.T) {
 
 		go func() {
 			defer w.Close()
-			err := MarshalStreams(file, w)
+			err := Marshal(file, w)
 			require.NoError(t, err)
 		}()
 
-		results := UnmarshalResultsStream(r)
+		results := Unmarshal(r)
 
 		actual, err := results.Collect()
 		require.NoError(t, err)
@@ -67,8 +67,8 @@ func TestParseFile(t *testing.T) {
 
 		w := failingWriter{}
 
-		err = MarshalStreams(file, w)
-		assert.EqualError(t, err, "MarshalStreams failed: error while writing: TEST")
+		err = Marshal(file, w)
+		assert.EqualError(t, err, "Marshal failed: error while writing: TEST")
 
 	})
 

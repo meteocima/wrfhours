@@ -79,12 +79,12 @@ func NewParser(timeout time.Duration) *Parser {
 		files: files,
 	}
 
-	go parser.forwardFilesWithTimout(timeout)
+	go parser.forwardFilesWithTimeout(timeout)
 
 	return &parser
 }
 
-func (parser *Parser) forwardFilesWithTimout(timeout time.Duration) {
+func (parser *Parser) forwardFilesWithTimeout(timeout time.Duration) {
 	defer close(parser.Files)
 
 	for {

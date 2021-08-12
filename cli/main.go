@@ -19,7 +19,7 @@ func main() {
 		os.Exit(0)
 	}
 
-	if err := json.MarshalStreams(os.Stdin, os.Stdout); err != nil {
+	if err := json.Marshal(os.Stdin, os.Stdout); err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)
 	}
