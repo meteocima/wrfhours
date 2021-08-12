@@ -102,12 +102,12 @@ func TestParseFile(t *testing.T) {
 		var actualD3 []FileInfo
 		var actualD1 []FileInfo
 
-		results.OnFileDo(Filter{Type: "wrfout", Domain: 3}, func(file FileInfo) error {
+		results.OnFileDo("wrfout", 3, func(file FileInfo) error {
 			actualD3 = append(actualD3, file)
 			return nil
 		})
 
-		results.OnFileDo(Filter{Type: "wrfout", Domain: 1}, func(file FileInfo) error {
+		results.OnFileDo("wrfout", 1, func(file FileInfo) error {
 			actualD1 = append(actualD1, file)
 			return nil
 		})
@@ -266,7 +266,7 @@ SUCCESS COMPLETE WRF
 
 		results := ParseFile(fixtureFS, "rsl.out.0000")
 
-		err := results.OnFileDo(All, func(file FileInfo) error {
+		err := results.OnFileDo("", 0, func(file FileInfo) error {
 			return fmt.Errorf("TEST")
 		}).Execute()
 
@@ -279,7 +279,7 @@ SUCCESS COMPLETE WRF
 		results := ParseFile(fixtureFS, "rsl.out.0000")
 		var actual []FileInfo
 
-		err := results.OnFileDo(All, func(file FileInfo) error {
+		err := results.OnFileDo("", 0, func(file FileInfo) error {
 			actual = append(actual, file)
 			return nil
 		}).Execute()
@@ -294,7 +294,7 @@ SUCCESS COMPLETE WRF
 		results := ParseFile(fixtureFS, "rsl.out.0000")
 		var actual []FileInfo
 
-		err := results.OnFileDo(Filter{Type: "wrfout", Domain: 3}, func(file FileInfo) error {
+		err := results.OnFileDo("wrfout", 3, func(file FileInfo) error {
 			actual = append(actual, file)
 			return nil
 		}).Execute()

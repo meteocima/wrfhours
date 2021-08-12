@@ -5,12 +5,9 @@ import (
 	"time"
 )
 
-// FileInfoChan ...
-type FileInfoChan chan FileInfo
-
-// NewFileInfoChan ...
-func NewFileInfoChan(timeout time.Duration, inch chan FileInfo) FileInfoChan {
-	outch := make(FileInfoChan)
+// newFileInfoChan ...
+func newFileInfoChan(timeout time.Duration, inch chan FileInfo) chan FileInfo {
+	outch := make(chan FileInfo)
 
 	go func() {
 		defer close(outch)

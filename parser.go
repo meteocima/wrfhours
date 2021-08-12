@@ -27,7 +27,7 @@ import (
 type Parser struct {
 	currline string
 	Start    *time.Time
-	Files    FileInfoChan
+	Files    chan FileInfo
 	files    chan FileInfo
 	onClose  func() error
 	lock     sync.Mutex
@@ -40,7 +40,7 @@ func NewParser(timeout time.Duration) Parser {
 	files := make(chan FileInfo)
 
 	return Parser{
-		Files: NewFileInfoChan(timeout, files),
+		Files: newFileInfoChan(timeout, files),
 		files: files,
 	}
 }
@@ -248,10 +248,10 @@ func (parser *Parser) Execute() error {
 			return file.Err
 		}
 		for _, handler := range parser.handlers {
-			if handler.filter.Domain != 0 && handler.filter.Domain != file.Domain {
+			if handler.domainFilter != 0 && handler.domainFilter != file.Domain {
 				continue
 			}
-			if handler.filter.Type != "" && handler.filter.Type != file.Type {
+			if handler.typeFilter != "" && handler.typeFilter != file.Type {
 				continue
 			}
 
@@ -265,7 +265,7 @@ func (parser *Parser) Execute() error {
 }
 
 // OnFileDo ...
-func (parser *Parser) OnFileDo(filter Filter, fn func(info FileInfo) error) *Parser {
-	parser.handlers = append(parser.handlers, execHandler{fn, filter})
+func (parser *Parser) OnFileDo(typeFilter string, domainFilter int, fn func(info FileInfo) error) *Parser {
+	parser.handlers = append(parser.handlers, execHandler{fn, typeFilter, domainFilter})
 	return parser
 }

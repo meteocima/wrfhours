@@ -38,23 +38,10 @@ func (f FileInfo) IsError() bool {
 }
 
 type execHandler struct {
-	fn     func(info FileInfo) error
-	filter Filter
+	fn           func(info FileInfo) error
+	typeFilter   string
+	domainFilter int
 }
-
-// Filter contains filter to
-// tell wich file to filter
-// in a OnFileDo execution
-type Filter struct {
-	// type of file to filter, e.g. auxhist23, wrfout etc.
-	// if an empty string, no filter is applyed for file type
-	Type string
-	// domain to filter, if 0 , no filter is applyed for domain
-	Domain int
-}
-
-// All ...
-var All = Filter{}
 
 // ParseFile parse WRF log from a given file.
 func ParseFile(fs fs.FS, wrfLogPath string) *Parser {
