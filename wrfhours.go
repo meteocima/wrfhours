@@ -86,10 +86,11 @@ func NewParser(timeout time.Duration) *Parser {
 
 func (parser *Parser) forwardFilesWithTimeout(timeout time.Duration) {
 	defer close(parser.Files)
-
+	actualTimeout := 5 * time.Minute
 	for {
 		select {
 		case f := <-parser.files:
+			actualTimeout = timeout
 			if f.IsEmpty() {
 				// fmt.Printlnln("inch recevied nil")
 				return
@@ -102,7 +103,7 @@ func (parser *Parser) forwardFilesWithTimeout(timeout time.Duration) {
 				// fmt.Printlnln("return outch bacause err ")
 				return
 			}
-		case <-time.After(timeout):
+		case <-time.After(actualTimeout):
 			parser.Files <- FileInfo{Err: fmt.Errorf("Timeout expired: no new files created for more than %s", timeout)}
 			return
 		}

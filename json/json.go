@@ -12,7 +12,7 @@ import (
 
 // Marshal ...
 func Marshal(in io.Reader, out io.Writer) error {
-	parser := wrfhours.NewParser(10 * time.Millisecond)
+	parser := wrfhours.NewParser(100 * time.Millisecond)
 
 	go parser.Parse(in)
 
