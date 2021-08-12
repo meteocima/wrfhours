@@ -69,13 +69,43 @@ type Parser struct {
 }
 
 // NewParser ...
-func NewParser(timeout time.Duration) Parser {
+func NewParser(timeout time.Duration) *Parser {
 
 	files := make(chan FileInfo)
+	Files := make(chan FileInfo)
 
-	return Parser{
-		Files: newFileInfoChan(timeout, files),
+	parser := Parser{
+		Files: Files,
 		files: files,
+	}
+
+	go parser.forwardFilesWithTimout(timeout)
+
+	return &parser
+}
+
+func (parser *Parser) forwardFilesWithTimout(timeout time.Duration) {
+	defer close(parser.Files)
+
+	for {
+		select {
+		case f := <-parser.files:
+			if f.IsEmpty() {
+				// fmt.Printlnln("inch recevied nil")
+				return
+			}
+			// fmt.Printlnln("inch recevied ", f)
+			parser.Files <- f
+			// fmt.Printlnln("outch sent ", f)
+
+			if f.Err != nil {
+				// fmt.Printlnln("return outch bacause err ")
+				return
+			}
+		case <-time.After(timeout):
+			parser.Files <- FileInfo{Err: fmt.Errorf("Timeout expired: no new files created for more than %s", timeout)}
+			return
+		}
 	}
 }
 
@@ -195,6 +225,10 @@ func (parser *Parser) parseFileInfo() (info FileInfo) {
 		return FileInfo{Type: "restart"}
 	}
 
+	if info.Filename == "filter output" {
+		return FileInfo{Type: "filter-output"}
+	}
+
 	// filename contains: auxhist23_d03_2021-08-04_01:00:00
 	filenameParts := strings.Split(info.Filename, "_")
 	if len(filenameParts) != 4 {
@@ -216,7 +250,16 @@ func (parser *Parser) parseFileInfo() (info FileInfo) {
 	if instant, err := time.Parse("2006-01-0215:04:05", filenameParts[2]+filenameParts[3]); err == nil {
 		info.Instant = instant
 	} else {
-		return FileInfo{Err: fmt.Errorf("invalid time instant: %w", err)}
+		// try without seconds
+
+		if instant, e := time.Parse("2006-01-0215:04", filenameParts[2]+filenameParts[3]); e == nil {
+			info.Instant = instant
+		} else {
+			// try without seconds
+
+			return FileInfo{Err: fmt.Errorf("invalid time instant: %w", err)}
+		}
+
 	}
 
 	info.HourProgr = int(info.Instant.Sub(*parser.Start).Hours())

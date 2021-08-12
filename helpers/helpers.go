@@ -28,5 +28,5 @@ func Parse(r io.Reader, timeout time.Duration) *wrfhours.Parser {
 
 	go parser.Parse(r)
 
-	return &parser
+	return parser
 }

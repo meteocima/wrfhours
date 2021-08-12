@@ -4,6 +4,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
+
+	"github.com/meteocima/wrfhours/json"
 )
 
 // Version of the command
@@ -16,10 +18,10 @@ func main() {
 		fmt.Printf("wrfhours ver. %s\n", Version)
 		os.Exit(0)
 	}
-	/*
-		if err := wrfoutput.MarshalStreams(os.Stdin, os.Stdout); err != nil {
-			fmt.Fprintln(os.Stderr, err.Error())
-			os.Exit(1)
-		}
-	*/
+
+	if err := json.MarshalStreams(os.Stdin, os.Stdout); err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		os.Exit(1)
+	}
+
 }

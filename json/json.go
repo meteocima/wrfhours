@@ -69,5 +69,5 @@ func UnmarshalResultsStream(r io.Reader) *wrfhours.Parser {
 		results.Close()
 	}()
 
-	return &results
+	return results
 }
