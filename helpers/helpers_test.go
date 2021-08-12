@@ -1,4 +1,4 @@
-package wrfhours
+package helpers
 
 import (
 	"embed"
@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/meteocima/wrfhours"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -20,57 +21,18 @@ var fixtureFS, _ = fs.Sub(fixtureRootFS, "fixtures")
 
 func TestParseFile(t *testing.T) {
 
-	t.Run("Unmarshal on wrong JSON", func(t *testing.T) {
-
-		r, w := io.Pipe()
-
-		go func() {
-			defer w.Close()
-			fmt.Fprintf(w, "TEST\n")
-		}()
-
-		results := UnmarshalResultsStream(r)
-		require.NotNil(t, results)
-		f := <-results.Files
-		require.NotNil(t, f)
-
-		assert.EqualError(t, f.Err, "UnmarshalResultsStream failed: error while reading: invalid character 'T' looking for beginning of value")
-
-	})
-
 	t.Run("emit error on wrong domain", func(t *testing.T) {
-		results := ParseFile(fixtureFS, "wrong-domain")
+		results, err := ParseFile(fixtureFS, "wrong-domain")
+		require.NoError(t, err)
 		actual, err := results.Collect()
 		assert.Empty(t, actual)
 		assert.EqualError(t, err, "Wrong format for timing line `Timing for Writing auxhist23_d01_2021-08-06_00:00:00 for!!domain        1:    0.10153 elapsed seconds`: `for domain` expected to appears in line")
 	})
 
-	t.Run("Marshal / Unmarshal", func(t *testing.T) {
-
-		file, err := fixtureFS.Open("rsl.out.0000")
-		require.NoError(t, err)
-		defer file.Close()
-
-		r, w := io.Pipe()
-
-		go func() {
-			defer w.Close()
-			err := MarshalStreams(file, w)
-			require.NoError(t, err)
-		}()
-
-		results := UnmarshalResultsStream(r)
-
-		actual, err := results.Collect()
-		require.NoError(t, err)
-		checkResults(t, actual)
-
-	})
-
 	t.Run("emit error on file open error", func(t *testing.T) {
-		results := ParseFile(fixtureFS, "doesnt-exist")
-		actual, err := results.Collect()
-		assert.Nil(t, actual)
+		results, err := ParseFile(fixtureFS, "doesnt-exist")
+
+		assert.Nil(t, results)
 		assert.EqualError(t, err, "open doesnt-exist: file does not exist")
 	})
 
@@ -97,17 +59,18 @@ func TestParseFile(t *testing.T) {
 	})
 	t.Run("OnFileDo with multiple filters", func(t *testing.T) {
 
-		results := ParseFile(fixtureFS, "rsl.out.0000")
+		results, err := ParseFile(fixtureFS, "rsl.out.0000")
+		require.NoError(t, err)
 
-		var actualD3 []FileInfo
-		var actualD1 []FileInfo
+		var actualD3 []wrfhours.FileInfo
+		var actualD1 []wrfhours.FileInfo
 
-		results.OnFileDo("wrfout", 3, func(file FileInfo) error {
+		results.OnFileDo("wrfout", 3, func(file wrfhours.FileInfo) error {
 			actualD3 = append(actualD3, file)
 			return nil
 		})
 
-		results.OnFileDo("wrfout", 1, func(file FileInfo) error {
+		results.OnFileDo("wrfout", 1, func(file wrfhours.FileInfo) error {
 			actualD1 = append(actualD1, file)
 			return nil
 		})
@@ -116,7 +79,7 @@ func TestParseFile(t *testing.T) {
 
 		assert.Equal(t, 1, len(actualD1))
 
-		assert.Equal(t, FileInfo{
+		assert.Equal(t, wrfhours.FileInfo{
 			Type:      "wrfout",
 			Domain:    1,
 			Instant:   time.Date(2021, 8, 4, 0, 0, 0, 0, time.UTC),
@@ -126,7 +89,7 @@ func TestParseFile(t *testing.T) {
 
 		assert.Equal(t, 49, len(actualD3))
 
-		assert.Equal(t, FileInfo{
+		assert.Equal(t, wrfhours.FileInfo{
 			Type:      "wrfout",
 			Domain:    3,
 			Instant:   time.Date(2021, 8, 4, 0, 0, 0, 0, time.UTC),
@@ -136,7 +99,7 @@ func TestParseFile(t *testing.T) {
 
 		//Timing for Writing wrfout_d03_2021-08-04_08:00:00 for domain        3:    0.88979 elapsed seconds
 
-		assert.Equal(t, FileInfo{
+		assert.Equal(t, wrfhours.FileInfo{
 			Type:      "wrfout",
 			Domain:    3,
 			Instant:   time.Date(2021, 8, 4, 10, 0, 0, 0, time.UTC),
@@ -182,7 +145,7 @@ func TestParseFile(t *testing.T) {
 
 		assert.Equal(t, 1, len(actual))
 
-		assert.Equal(t, FileInfo{
+		assert.Equal(t, wrfhours.FileInfo{
 			Type:      "auxhist23",
 			Domain:    1,
 			Instant:   time.Date(2021, 8, 6, 0, 0, 0, 0, time.UTC),
@@ -208,65 +171,59 @@ SUCCESS COMPLETE WRF
 	})
 
 	t.Run("emit error when start instant is missing", func(t *testing.T) {
-		results := ParseFile(fixtureFS, "wrong-without-start-instant")
+		results, err := ParseFile(fixtureFS, "wrong-without-start-instant")
+		require.NoError(t, err)
 		actual, err := results.Collect()
 		assert.Nil(t, actual)
 		assert.EqualError(t, err, "Start line not found yet")
 	})
 
 	t.Run("emit error on wrong number of filename parts", func(t *testing.T) {
-		results := ParseFile(fixtureFS, "wrong-filename-parts")
+		results, err := ParseFile(fixtureFS, "wrong-filename-parts")
+		require.NoError(t, err)
 		actual, err := results.Collect()
 		assert.Nil(t, actual)
 		assert.EqualError(t, err, "Wrong format for timing line `Timing for Writing auxhist23_d01_2021-08-06_00_00:00 for domain        1:    0.10153 elapsed seconds`: filename expected to be formed by 4 parts separated by underscores")
 	})
 
 	t.Run("emit error on wrong domain number", func(t *testing.T) {
-		results := ParseFile(fixtureFS, "wrong-domain-num")
+		results, err := ParseFile(fixtureFS, "wrong-domain-num")
+		require.NoError(t, err)
 		actual, err := results.Collect()
 		assert.Nil(t, actual)
 		assert.EqualError(t, err, "Wrong format for timing line `Timing for Writing auxhist23_dF1_2021-08-06_00:00:00 for domain        1:    0.10153 elapsed seconds`: invalid domain: strconv.ParseInt: parsing \"F1\": invalid syntax")
 	})
 
 	t.Run("emit error on wrong instant", func(t *testing.T) {
-		results := ParseFile(fixtureFS, "wrong-instant")
+		results, err := ParseFile(fixtureFS, "wrong-instant")
+		require.NoError(t, err)
 		actual, err := results.Collect()
 		assert.Nil(t, actual)
 		assert.EqualError(t, err, "Wrong format for timing line `Timing for Writing auxhist23_d01_2021-08-RR_00:00:00 for domain        1:    0.10153 elapsed seconds`: invalid time instant: parsing time \"2021-08-RR00:00:00\" as \"2006-01-0215:04:05\": cannot parse \"RR00:00:00\" as \"02\"")
 	})
 
 	t.Run("emit error on wrong start instant line", func(t *testing.T) {
-		results := ParseFile(fixtureFS, "wrong-start-instant")
+		results, err := ParseFile(fixtureFS, "wrong-start-instant")
+		require.NoError(t, err)
 		actual, err := results.Collect()
 		assert.Nil(t, actual)
 		assert.EqualError(t, err, "Wrong format for start instant line `d01 2021-08-04_00:00:00`: line must contains at leas 3 space separated parts. e.g. `d01 2021-08-04_00:00:00 something`")
 	})
 
 	t.Run("emit error on wrong start instant date format", func(t *testing.T) {
-		results := ParseFile(fixtureFS, "wrong-start-instant-format")
+		results, err := ParseFile(fixtureFS, "wrong-start-instant-format")
+		require.NoError(t, err)
 		actual, err := results.Collect()
 		assert.Nil(t, actual)
 		assert.EqualError(t, err, "Wrong format for start instant line `d01 2021-08-RR_00:00:00 ciao`: parsing time \"2021-08-RR_00:00:00\" as \"2006-01-02_15:04:05\": cannot parse \"RR_00:00:00\" as \"02\"")
 	})
 
-	t.Run("Marshal on failing writer", func(t *testing.T) {
-
-		file, err := fixtureFS.Open("rsl.out.0000")
-		require.NoError(t, err)
-		defer file.Close()
-
-		w := failingWriter{}
-
-		err = MarshalStreams(file, w)
-		assert.EqualError(t, err, "MarshalStreams failed: error while writing: TEST")
-
-	})
-
 	t.Run("OnFileDo with failing handler", func(t *testing.T) {
 
-		results := ParseFile(fixtureFS, "rsl.out.0000")
+		results, err := ParseFile(fixtureFS, "rsl.out.0000")
+		require.NoError(t, err)
 
-		err := results.OnFileDo("", 0, func(file FileInfo) error {
+		err = results.OnFileDo("", 0, func(file wrfhours.FileInfo) error {
 			return fmt.Errorf("TEST")
 		}).Execute()
 
@@ -276,10 +233,11 @@ SUCCESS COMPLETE WRF
 
 	t.Run("OnFileDo complete file", func(t *testing.T) {
 
-		results := ParseFile(fixtureFS, "rsl.out.0000")
-		var actual []FileInfo
+		results, err := ParseFile(fixtureFS, "rsl.out.0000")
+		require.NoError(t, err)
+		var actual []wrfhours.FileInfo
 
-		err := results.OnFileDo("", 0, func(file FileInfo) error {
+		err = results.OnFileDo("", 0, func(file wrfhours.FileInfo) error {
 			actual = append(actual, file)
 			return nil
 		}).Execute()
@@ -291,10 +249,12 @@ SUCCESS COMPLETE WRF
 
 	t.Run("OnFileDo with filters", func(t *testing.T) {
 
-		results := ParseFile(fixtureFS, "rsl.out.0000")
-		var actual []FileInfo
+		results, err := ParseFile(fixtureFS, "rsl.out.0000")
+		require.NoError(t, err)
 
-		err := results.OnFileDo("wrfout", 3, func(file FileInfo) error {
+		var actual []wrfhours.FileInfo
+
+		err = results.OnFileDo("wrfout", 3, func(file wrfhours.FileInfo) error {
 			actual = append(actual, file)
 			return nil
 		}).Execute()
@@ -303,7 +263,7 @@ SUCCESS COMPLETE WRF
 
 		assert.Equal(t, 49, len(actual))
 
-		assert.Equal(t, FileInfo{
+		assert.Equal(t, wrfhours.FileInfo{
 			Type:      "wrfout",
 			Domain:    3,
 			Instant:   time.Date(2021, 8, 4, 0, 0, 0, 0, time.UTC),
@@ -313,7 +273,7 @@ SUCCESS COMPLETE WRF
 
 		//Timing for Writing wrfout_d03_2021-08-04_08:00:00 for domain        3:    0.88979 elapsed seconds
 
-		assert.Equal(t, FileInfo{
+		assert.Equal(t, wrfhours.FileInfo{
 			Type:      "wrfout",
 			Domain:    3,
 			Instant:   time.Date(2021, 8, 4, 10, 0, 0, 0, time.UTC),
@@ -325,7 +285,8 @@ SUCCESS COMPLETE WRF
 
 	t.Run("Collect complete file", func(t *testing.T) {
 
-		results := ParseFile(fixtureFS, "rsl.out.0000")
+		results, err := ParseFile(fixtureFS, "rsl.out.0000")
+		require.NoError(t, err)
 		actual, err := results.Collect()
 		require.NoError(t, err)
 
@@ -341,10 +302,10 @@ func (w failingWriter) Write(p []byte) (n int, err error) {
 	return 0, fmt.Errorf("TEST")
 }
 
-func checkResults(t *testing.T, actual []FileInfo) {
+func checkResults(t *testing.T, actual []wrfhours.FileInfo) {
 	assert.Equal(t, 201, len(actual))
 
-	assert.Equal(t, FileInfo{
+	assert.Equal(t, wrfhours.FileInfo{
 		Type:      "wrfout",
 		Domain:    1,
 		Instant:   time.Date(2021, 8, 4, 0, 0, 0, 0, time.UTC),
@@ -352,7 +313,7 @@ func checkResults(t *testing.T, actual []FileInfo) {
 		HourProgr: 0,
 	}, actual[0])
 
-	assert.Equal(t, FileInfo{
+	assert.Equal(t, wrfhours.FileInfo{
 		Type:      "wrfout",
 		Domain:    3,
 		Instant:   time.Date(2021, 8, 4, 1, 0, 0, 0, time.UTC),
@@ -360,7 +321,7 @@ func checkResults(t *testing.T, actual []FileInfo) {
 		HourProgr: 1,
 	}, actual[10])
 
-	assert.Equal(t, FileInfo{
+	assert.Equal(t, wrfhours.FileInfo{
 		Type:      "auxhist23",
 		Domain:    3,
 		Instant:   time.Date(2021, 8, 5, 23, 0, 0, 0, time.UTC),

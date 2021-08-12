@@ -5,17 +5,20 @@ import (
 	"fmt"
 	"io/fs"
 
-	"github.com/meteocima/wrfhours"
+	"github.com/meteocima/wrfhours/helpers"
 )
 
-//go:embed fixtures
+//go:embed helpers/fixtures
 var fixtureRootFS embed.FS
-var fixtureFS, _ = fs.Sub(fixtureRootFS, "fixtures")
+var fixtureFS, _ = fs.Sub(fixtureRootFS, "helpers/fixtures")
 
 // This example parse an existing WRF log file,
 // and print the first two output files found there.
 func ExampleParseFile() {
-	parser := wrfhours.ParseFile(fixtureFS, "rsl.out.0000")
+	parser, err := helpers.ParseFile(fixtureFS, "rsl.out.0000")
+	if err != nil {
+		panic(err)
+	}
 	i := 0
 	for f := range parser.Files {
 		fmt.Println(f.HourProgr, f.Type, f.Instant)
