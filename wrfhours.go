@@ -27,8 +27,18 @@ type FileInfo struct {
 	Err       error
 }
 
+// IsEmpty ...
+func (f FileInfo) IsEmpty() bool {
+	return f.Type == "" && f.Err == nil
+}
+
+// IsError ...
+func (f FileInfo) IsError() bool {
+	return f.Type == "" && f.Err != nil
+}
+
 type execHandler struct {
-	fn     func(info *FileInfo) error
+	fn     func(info FileInfo) error
 	filter Filter
 }
 
@@ -46,19 +56,13 @@ type Filter struct {
 // All ...
 var All = Filter{}
 
-var restartFile *FileInfo = nil
-
-func noop() error {
-	return nil
-}
-
 // ParseFile parse WRF log from a given file.
 func ParseFile(fs fs.FS, wrfLogPath string) *Parser {
 
 	file, err := fs.Open(wrfLogPath)
 	if err != nil {
 		parser := NewParser(time.Millisecond)
-		go parser.EmitError(err)
+		go parser.emitError(err)
 		return &parser
 	}
 
@@ -112,21 +116,27 @@ func UnmarshalResultsStream(r io.Reader) *Parser {
 		for scanner.Scan() {
 			line := scanner.Bytes()
 			var file FileInfo
+			// fmt.Printlnln("unmarshal")
 			err = json.Unmarshal(line, &file)
 			if err != nil {
+				// fmt.Printlnln("err found")
 				break
 			}
-			results.files <- &file
+			results.files <- file
 		}
 		if err == nil {
+			// fmt.Printlnln("err nil, check scanner")
 			err = scanner.Err()
 		}
 
 		if err != nil {
+			// fmt.Printlnln("err!")
 			err = fmt.Errorf("UnmarshalResultsStream failed: error while reading: %w", err)
-			results.EmitError(err)
+			// fmt.Printlnln(err)
+			results.emitError(err)
 			return
 		}
+		// // fmt.Printlnln("err nil close files")
 		close(results.files)
 	}()
 

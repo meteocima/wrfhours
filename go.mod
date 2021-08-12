@@ -1,4 +1,4 @@
-module github.com/meteocima/wrfoutput
+module github.com/meteocima/wrfhours
 
 go 1.16
 

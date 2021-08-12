@@ -28,7 +28,7 @@ type Parser struct {
 	currline string
 	Start    *time.Time
 	Files    FileInfoChan
-	files    chan *FileInfo
+	files    chan FileInfo
 	onClose  func() error
 	lock     sync.Mutex
 	handlers []execHandler
@@ -37,21 +37,27 @@ type Parser struct {
 // NewParser ...
 func NewParser(timeout time.Duration) Parser {
 
-	files := make(chan *FileInfo)
+	files := make(chan FileInfo)
 
 	return Parser{
-		Files:   NewFileInfoChan(timeout, files),
-		onClose: noop,
-		files:   files,
+		Files: NewFileInfoChan(timeout, files),
+		files: files,
 	}
 }
 
-func (parser *Parser) runOnClose() {
+func (parser *Parser) runOnClose(err error) {
 	parser.lock.Lock()
-	defer parser.lock.Unlock()
+	onClose := parser.onClose
+	parser.lock.Unlock()
 
-	if err := parser.onClose(); err != nil {
-		parser.EmitError(fmt.Errorf("OnClose hook failed: %w", err))
+	if onClose != nil {
+		if e := onClose(); e != nil && err == nil {
+			err = fmt.Errorf("OnClose hook failed: %w", e)
+		}
+	}
+
+	if err != nil {
+		parser.emitError(err)
 		return
 	}
 
@@ -62,31 +68,27 @@ func (parser *Parser) runOnClose() {
 func (parser *Parser) Parse(r io.Reader) {
 
 	scanner := bufio.NewScanner(r)
-
+	var err error
 	for scanner.Scan() /**&& !hasDone*/ {
 		parser.currline = scanner.Text()
-		if err := parser.parseCurrLine(); err != nil {
+		if err = parser.parseCurrLine(); err != nil {
 			if err.Error() == "completed" {
-				parser.runOnClose()
+				parser.runOnClose(nil)
 				return
 			}
-			parser.EmitError(err)
-			return
+			break
 		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		parser.EmitError(err)
+	if e := scanner.Err(); e != nil && err == nil {
+		err = e
 		return
 	}
+	if err == nil {
+		err = fmt.Errorf("input stream completed without success log line")
+	}
 
-	err := fmt.Errorf("input stream completed without success log line")
-	parser.EmitError(err)
-
-	parser.lock.Lock()
-	defer parser.lock.Unlock()
-
-	parser.onClose()
+	parser.runOnClose(err)
 
 }
 
@@ -100,13 +102,12 @@ func (parser *Parser) parseCurrLine() error {
 	}
 
 	if parser.isFileInfoLine() {
-		info, err := parser.parseFileInfo()
-		if err != nil {
-
-			return err
+		info := parser.parseFileInfo()
+		if info.Err != nil {
+			return info.Err
 		}
 
-		if info != restartFile {
+		if info.Type != "restart" {
 			parser.files <- info
 		}
 	}
@@ -120,19 +121,18 @@ func (parser *Parser) parseCurrLine() error {
 }
 
 // parse a single line already identified as a 'file writing' log line.
-func (parser *Parser) parseFileInfo() (info *FileInfo, failure error) {
+func (parser *Parser) parseFileInfo() (info FileInfo) {
 	if parser.Start == nil {
-		return nil, fmt.Errorf("Start line not found yet")
+		return FileInfo{Err: fmt.Errorf("Start line not found yet")}
 	}
 
 	defer func() {
-		if failure != nil {
-			failure = fmt.Errorf("Wrong format for timing line `%s`: %w", parser.currline, failure)
-			info = nil
+		if info.Err != nil {
+			info.Err = fmt.Errorf("Wrong format for timing line `%s`: %w", parser.currline, info.Err)
 		}
 	}()
 
-	info = &FileInfo{}
+	info = FileInfo{}
 
 	// line contains: Timing for Writing auxhist23_d03_2021-08-04_01:00:00 for domain        3:   10.02259 elapsed seconds
 	fname := strings.TrimPrefix(parser.currline, filesPrefix)
@@ -140,7 +140,7 @@ func (parser *Parser) parseFileInfo() (info *FileInfo, failure error) {
 	// fname contains: auxhist23_d03_2021-08-04_01:00:00 for domain        3:   10.02259 elapsed seconds
 	fnameParts := strings.Split(fname, " for domain")
 	if len(fnameParts) != 2 {
-		return nil, fmt.Errorf("`for domain` expected to appears in line")
+		return FileInfo{Err: fmt.Errorf("`for domain` expected to appears in line")}
 	}
 
 	info.Filename = strings.TrimSpace(fnameParts[0])
@@ -148,13 +148,13 @@ func (parser *Parser) parseFileInfo() (info *FileInfo, failure error) {
 	// skip WRF restart files with this form:
 	// `Timing for Writing restart for domain        1:    1.33332 elapsed seconds`
 	if info.Filename == "restart" {
-		return nil, nil
+		return FileInfo{Type: "restart"}
 	}
 
 	// filename contains: auxhist23_d03_2021-08-04_01:00:00
 	filenameParts := strings.Split(info.Filename, "_")
 	if len(filenameParts) != 4 {
-		return info, fmt.Errorf("filename expected to be formed by 4 parts separated by underscores")
+		return FileInfo{Err: fmt.Errorf("filename expected to be formed by 4 parts separated by underscores")}
 	}
 
 	// filenameParts[0] == auxhist23
@@ -165,20 +165,20 @@ func (parser *Parser) parseFileInfo() (info *FileInfo, failure error) {
 	if domain, err := strconv.ParseInt(trimmedDomain, 10, 32); err == nil {
 		info.Domain = int(domain)
 	} else {
-		return nil, fmt.Errorf("invalid domain: %w", err)
+		return FileInfo{Err: fmt.Errorf("invalid domain: %w", err)}
 	}
 
 	// filenameParts[2]+filenameParts[3] == 2021-08-0401:00:00
 	if instant, err := time.Parse("2006-01-0215:04:05", filenameParts[2]+filenameParts[3]); err == nil {
 		info.Instant = instant
 	} else {
-		return nil, fmt.Errorf("invalid time instant: %w", err)
+		return FileInfo{Err: fmt.Errorf("invalid time instant: %w", err)}
 	}
 
 	info.HourProgr = int(info.Instant.Sub(*parser.Start).Hours())
 
-	//fmt.Println(info)
-	return info, nil
+	// fmt.Printlnln(info)
+	return info
 }
 
 func (parser *Parser) parseStartInstant() error {
@@ -211,10 +211,13 @@ func (parser *Parser) isFileInfoLine() bool {
 	return strings.HasPrefix(parser.currline, filesPrefix)
 }
 
-// EmitError ...
-func (parser *Parser) EmitError(err error) {
-	parser.files <- &FileInfo{Err: err}
+// emitError ...
+func (parser *Parser) emitError(err error) {
+	// fmt.Printlnln("write err")
+	parser.files <- FileInfo{Err: err}
+	// fmt.Printlnln("err written")
 	close(parser.files)
+	// fmt.Printlnln("files closed")
 }
 
 // SetOnClose ...
@@ -225,8 +228,8 @@ func (parser *Parser) SetOnClose(fn func() error) {
 }
 
 // Collect ...
-func (parser *Parser) Collect() ([]*FileInfo, error) {
-	actual := []*FileInfo{}
+func (parser *Parser) Collect() ([]FileInfo, error) {
+	actual := []FileInfo{}
 
 	for file := range parser.Files {
 		if file.Err != nil {
@@ -262,7 +265,7 @@ func (parser *Parser) Execute() error {
 }
 
 // OnFileDo ...
-func (parser *Parser) OnFileDo(filter Filter, fn func(info *FileInfo) error) *Parser {
+func (parser *Parser) OnFileDo(filter Filter, fn func(info FileInfo) error) *Parser {
 	parser.handlers = append(parser.handlers, execHandler{fn, filter})
 	return parser
 }

@@ -9,18 +9,24 @@ import (
 var fixtureRootFS embed.FS
 var fixtureFS, _ = fs.Sub(fixtureRootFS, "fixtures")
 
-// This example show how to use
-// fileargs.ReadFile to parse from
-// a file.
-func ExampleReadFile() {
-	/*args, err := fileargs.ReadFile(fixtureFS, "dates.txt")
-	if err != nil {
-		panic(err)
+/*
+// This example
+func ExampleParseFile() {
+	parser := wrfhours.ParseFile(fixtureFS, "rsl.out.0000")
+	i := 0
+	for f := range parser.Files {
+		fmt.Println(f.HourProgr, f.Type, f.Instant)
+		i++
+		if i == 2 {
+			break
+		}
+		if f.Err != nil {
+			panic(f.Err)
+		}
 	}
-	fmt.Println(args.String())*/
-	// Output: wrfda-runner.cfg
-	// 2020112600 24
-	// 2020112700 48
+
+	// Output: 0 wrfout 2021-08-04 00:00:00 +0000 UTC
+	// 0 auxhist2 2021-08-04 00:00:00 +0000 UTC
 }
 
 // This example show how to use
@@ -35,17 +41,19 @@ func ExampleReadAll() {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println(args.String())*/
+	fmt.Println(args.String())
 	// Output: wrfda-runner.cfg
 	// 2020112600 24
 	// 2020112700 48
 }
 
+
+
 // This example creates a fileargs.FileArguments
 // and show how it can be formatted into a string
 // with String method.
 func ExampleFileArguments() {
-	/*args := fileargs.FileArguments{
+	args := fileargs.FileArguments{
 		CfgPath: "wrfda-runner.cfg",
 		Periods: []*fileargs.Period{
 			{time.Date(2020, 11, 26, 0, 0, 0, 0, time.UTC), 24 * time.Hour},
@@ -54,12 +62,13 @@ func ExampleFileArguments() {
 	}
 
 	fmt.Println(args.String())
-	fmt.Println(args.Periods[1].String())*/
+	fmt.Println(args.Periods[1].String())
 	// Output: wrfda-runner.cfg
 	// 2020112600 24
 	// 2020112700 48
 	//
 	// 2020112700 48
+
 }
 
 // This example creates a fake
@@ -67,7 +76,7 @@ func ExampleFileArguments() {
 // file args, and then manually creates
 // a fileargs.Scanner to parse it.
 func ExampleScanner() {
-	/*var buf bytes.Buffer
+	var buf bytes.Buffer
 	buf.WriteString("wrfda-runner.cfg\n")
 	buf.WriteString("2020112600 24\n")
 	buf.WriteString("2020112700 48\n")
@@ -88,8 +97,9 @@ func ExampleScanner() {
 	if err := r.Err(); err != nil {
 		panic(err)
 	}
-	*/
+
 	// Output: wrfda-runner.cfg
 	// 2020112600 24
 	// 2020112700 48
 }
+*/
