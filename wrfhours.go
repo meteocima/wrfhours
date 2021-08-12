@@ -92,7 +92,7 @@ func (parser *Parser) forwardFilesWithTimeout(timeout time.Duration) {
 		case f := <-parser.files:
 			actualTimeout = timeout
 			if f.IsEmpty() {
-				fmt.Println("inch recevied nil")
+				// fmt.Println("inch recevied nil")
 				return
 			}
 			// fmt.Println("inch recevied ", f)
@@ -138,9 +138,9 @@ func (parser *Parser) Parse(r io.Reader) {
 		parser.currline = scanner.Text()
 		if err = parser.parseCurrLine(); err != nil {
 			if err.Error() == "completed" {
-				fmt.Println("RUNONCLOSE")
+				//fmt.Println("RUNONCLOSE")
 				parser.runOnClose(nil)
-				fmt.Println("RUNONCLOSE DONE")
+				//fmt.Println("RUNONCLOSE DONE")
 				return
 			}
 			break
@@ -294,7 +294,7 @@ func (parser *Parser) parseStartInstant() error {
 func (parser *Parser) isSuccessLine() bool {
 
 	res := strings.HasSuffix(parser.currline, "SUCCESS COMPLETE WRF")
-	fmt.Printf("is success %s: %t\n", parser.currline, res)
+	//fmt.Printf("is success %s: %t\n", parser.currline, res)
 	return res
 }
 

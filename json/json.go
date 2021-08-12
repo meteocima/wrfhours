@@ -30,7 +30,7 @@ func Marshal(in io.Reader, out io.Writer, timeout time.Duration) error {
 		}
 	}
 
-	fmt.Println("MARSHAL DONE")
+	//fmt.Println("MARSHAL DONE")
 
 	return nil
 }
